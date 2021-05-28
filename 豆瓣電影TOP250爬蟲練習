@@ -1,0 +1,139 @@
+from bs4 import BeautifulSoup  #網頁解析，獲取數據
+import re  #正則表達式，進行文字匹配
+import urllib.request , urllib.error #制定url，獲取網頁數據
+import xlwt  #進行excel操作
+import sqlite3 #進行sqlite數據庫 操作
+
+
+def main():
+    baseurl = "https://movie.douban.com/top250?start="
+    #1.爬取網頁
+    datalist = getData(baseurl)
+
+    savepath = "豆瓣電影250.xls"
+    #3.保存數據
+    saveData(datalist,savepath)  #把左邊的數據，保存到右邊的路徑
+
+    #askURL("https://movie.douban.com/top250?start=")
+
+#影片詳情連接的規則
+findLink = re.compile(r'<a href="(.*?)">')  #創建正則表達式對象，表示規則(字符串的模式)
+
+#影片圖片
+findImgSrc = re.compile(r'<img.*src="(.*?)"',re.S) #re.S讓換行符號包含在字符中(否則.不包含換行字符)
+#影片片名
+findTitle = re.compile(r'<span class="title">(.*)</span>')
+#影片評分
+findRating = re.compile(r'<span class="rating_num" property="v:average">(.*)</span>')
+#評價人數
+findJudge = re.compile(r'<span>(\d*)人评价</span>')
+#找到概況
+findInq = re.compile(r'<span class="inq">(.*)</span>')
+#找到影驗的相關內容
+findBd = re.compile(r'<p class="">(.*?)</p>', re.S)
+
+
+#爬取網頁
+def getData(baseurl):
+    datalist=[]
+
+    for i in range(0,10):   #調用獲取頁面訊息的函數10次
+        url = baseurl + str(i*25)
+        html = askURL(url)  #保存獲取到的網頁源碼
+
+        #2.逐一解析數據(抓數據->一條一條根據需求比對->轉換成字串，利用re庫比對後印出)
+        soup = BeautifulSoup(html,"html.parser")
+
+        # 解析成功的樹型結構 = BeautifulSoup(被解析檔案，使用的解析器)
+        for item in soup.find_all('div',class_="item"):  #查找內容相符的字串，並返回清單
+            # 查找 div裡面具有item class的class
+            data = [] #保存一部電影的所有信息
+            item = str(item)
+
+            link = re.findall(findLink,item)[0] #回傳list，影片詳情的連接
+            #re庫用來通過正則表達式製造符合需求的模板，並查找出指定的字符串
+            data.append(link)   #添加連接
+            imgSrc = re.findall(findImgSrc,item)[0]
+            data.append(imgSrc)  #添加圖片
+            titles= re.findall(findTitle,item) #片名可能只有一個中文名，沒有外國名
+            if(len(titles) == 2 ):
+                ctitle = titles[0]      #添加中文名
+                data.append(ctitle)
+                otitle = titles[1].replace("/","")  #去掉無關的符號
+                data.append(otitle)      #添加外國名
+            else:
+                data.append(titles[0])
+                data.append(' ')  #外國名字留空
+            rating = re.findall(findRating,item)  #添加評分
+            data.append(rating)
+
+            judgeNum = re.findall(findJudge,item) #添加評價人數
+            data.append(judgeNum)
+
+            inq = re.findall(findInq,item)
+            if len(inq) != 0:
+                inq = inq[0].replace("。","")  #去掉句號
+                data.append(inq)        #添加描述
+            else:
+                data.append("")  #留空
+
+            bd = re.findall(findBd,item)[0]
+            bd = re.sub('<br(\s+)?/>(\s+)?',"",bd)  #去掉<br/>以及後面可能出現的其他<br/>
+            bd = re.sub('/',"",bd)  #替換/
+            data.append(bd.strip())  #去掉前後的空格
+
+            datalist.append(data)  #把處理好的一部恨電影訊息放進datalist
+
+    print(datalist)
+    return  datalist
+
+#得到指定一個url的網頁內容
+def askURL(url):
+    #模擬瀏覽器頭部訊息，向豆瓣服務器發送資料
+    head = {"User-Agent": "Mozilla/5.0 (Linux; Android 5.0; SM-G900P Build/LRX21T) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.128 Mobile Safari/537.36"}
+    #用戶代理，表示告訴對方服務器，我們是什麼樣類型的機器，瀏覽器(本質上是告訴瀏覽器，我們可以接收甚麼水平的文件內容)
+    request = urllib.request.Request(url,headers=head)
+    html=""
+    try:
+        response = urllib.request.urlopen(request)
+        html = response.read().decode('utf-8')
+        #print(html)
+
+    except urllib.error.urlerror as e:
+        if hasattr(e,"code"):
+            print(e.code)
+        elif hasattr(e,'reason'):
+            print(e,reason)
+
+    return html
+
+#3.保存數據
+def saveData(datalist,savepath):
+    # 建立一個Workbook物件，這就相當於建立了一個Excel檔案
+    book = xlwt.Workbook(encoding="utf-8",style_compression=0)  # 創建文件對象
+    #Workbook類初始化時有encoding和style_compression引數
+    #encoding:字元編碼預設是ascii。設定字元編碼，一般要這樣設定encoding='utf-8'，就可以在excel中輸出中文了。
+    #style_compression:表示是否壓縮，不常用。
+
+    # 建立一個sheet物件，一個sheet物件對應Excel檔案中的一張表格。
+    sheet = book.add_sheet("豆瓣電影250",cell_overwrite_ok=True)  # 創建工作表
+    # 其中的test是這張表的名字,cell_overwrite_ok，表示是否可以覆蓋單元格，其實是Worksheet例項化的一個引數，預設值是False
+
+    # worksheet.write(0,0,"hello")  #導入數據，第一個參數"列"，第二個參數"行"，第三格要輸入的參數值
+
+    col = ("電影詳情連接","圖片連結","影片中文名","影片外國名","評分","評價數","概況","相關訊息")
+    for i in range(0,8):
+        sheet.write(0,i,col[i]) #輸入列名(列，行，輸入值)
+    for i in range(0,250):
+        print(f"第{i+1}條")
+        data = datalist[i]
+        for j in range(0,8):
+            sheet.write(i+1,j,data[j])  #數據
+
+    # 最後，將以上操作儲存到指定的Excel檔案中
+    book.save(savepath)  # 保存數據表
+
+
+if __name__ ==  "__main__":
+    main()
+    print("爬取完畢!")
